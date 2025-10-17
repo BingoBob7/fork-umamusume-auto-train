@@ -113,6 +113,15 @@ def check_support_card(threshold=0.8, target="none"):
     count_result["total_friendship_levels"][friend_level] = 0
     count_result["hints_per_friend_level"][friend_level] = 0
 
+  # count trainer support cards
+  count_result["trainer"] = 0
+  trainer_match = match_template("assets/icons/support_card_type_trainer1.png", constants.SUPPORT_CARD_ICON_BBOX, threshold)
+  # two trainer card images.
+  if not trainer_match:
+    trainer_match = match_template("assets/icons/support_card_type_trainer2.png", constants.SUPPORT_CARD_ICON_BBOX, threshold)
+  for match in trainer_match:
+    count_result["trainer"] += 1
+
   hint_matches = match_template("assets/icons/support_hint.png", constants.SUPPORT_CARD_ICON_BBOX, threshold)
   for key, icon_path in SUPPORT_ICONS.items():
     count_result[key] = {}
@@ -221,6 +230,28 @@ def check_current_year():
   year = enhanced_screenshot(constants.YEAR_REGION)
   text = extract_text(year)
   return text
+
+# Check career day
+def check_career_day():
+  year = enhanced_screenshot(constants.YEAR_REGION)
+  text = extract_text(year)
+
+  # sometimes easyocr add "_ ". specifically during "Classic Year Early Aug"
+  cleaned_text = (
+      text
+      .replace("_ ", "")
+  )
+
+  # make all pre-debut days 12. 
+  if cleaned_text == "Junior Year Pre-Debut":
+    day = 12
+  else:
+    try: 
+      day = constants.CAREER_DAY[f"{cleaned_text}"]["day"]
+    except:
+      # if we can't parse the day, return 71 to use the strategy as if near the end of career.
+      day = 71
+  return day
 
 # Check criteria
 def check_criteria():

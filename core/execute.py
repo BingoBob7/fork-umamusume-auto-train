@@ -6,8 +6,8 @@ pyautogui.useImageNotFoundException(False)
 
 import re
 import core.state as state
-from core.state import check_support_card, check_failure, check_turn, check_mood, check_current_year, check_criteria, check_skill_pts, check_energy_level, get_race_type, check_status_effects, check_aptitudes
-from core.logic import do_something, decide_race_for_goal
+from core.state import check_support_card, check_failure, check_turn, check_mood, check_current_year, check_criteria, check_skill_pts, check_energy_level, get_race_type, check_status_effects, check_aptitudes, check_career_day
+from core.logic import do_something, decide_race_for_goal, evaluate_training_strategy
 
 from utils.log import info, warning, error, debug
 import utils.constants as constants
@@ -95,31 +95,32 @@ def check_training():
       pyautogui.mouseDown()
       support_card_results = check_support_card()
 
-      if key != "wit":
-        if failcheck == "check_all":
-          failure_chance = check_failure()
-          if failure_chance > (state.MAX_FAILURE + margin):
-            info("Failure rate too high skip to check wit")
-            failcheck="no_train"
-            failure_chance = state.MAX_FAILURE + margin
-          elif failure_chance < (state.MAX_FAILURE - margin):
-            info("Failure rate is low enough, skipping the rest of failure checks.")
-            failcheck="train"
-            failure_chance = 0
-        elif failcheck == "no_train":
-          failure_chance = state.MAX_FAILURE + margin
-        elif failcheck == "train":
-          failure_chance = 0
-      else:
-        if failcheck == "train":
-          failure_chance = 0
-        else:
-          failure_chance = check_failure()
+      # if key != "wit":
+      #   if failcheck == "check_all":
+      #     failure_chance = check_failure()
+      #     if failure_chance > (state.MAX_FAILURE + margin):
+      #       info("Failure rate too high skip to check wit")
+      #       failcheck="no_train"
+      #       failure_chance = state.MAX_FAILURE + margin
+      #     elif failure_chance < (state.MAX_FAILURE - margin):
+      #       info("Failure rate is low enough, skipping the rest of failure checks.")
+      #       failcheck="train"
+      #       failure_chance = 0
+      #   elif failcheck == "no_train":
+      #     failure_chance = state.MAX_FAILURE + margin
+      #   elif failcheck == "train":
+      #     failure_chance = 0
+      # else:
+      #   if failcheck == "train":
+      #     failure_chance = 0
+      #   else:
+      #     failure_chance = check_failure()
+      failure_chance = check_failure()
 
       support_card_results["failure"] = failure_chance
       results[key] = support_card_results
 
-      debug(f"[{key.upper()}] → Total Supports {support_card_results['total_supports']}, Levels:{support_card_results['total_friendship_levels']} , Fail: {failure_chance}%")
+      debug(f"[{key.upper()}] → Total Supports {support_card_results['total_supports']}, Trainers: {support_card_results['trainer']}, Levels:{support_card_results['total_friendship_levels']} , Fail: {failure_chance}%")
       sleep(0.1)
 
   pyautogui.mouseUp()
@@ -372,31 +373,42 @@ def career_lobby():
   global PREFERRED_POSITION_SET
   PREFERRED_POSITION_SET = False
   while state.is_bot_running and not state.stop_event.is_set():
+    strategy_data = {}
     screen = ImageGrab.grab()
     matches = multi_match_templates(templates, screen=screen)
 
     if click(boxes=matches["event"], text="Event found, selecting top choice."):
+      strategy_data["screen"] = "event"
       continue
     if click(boxes=matches["inspiration"], text="Inspiration found."):
+      strategy_data["screen"] = "inspiration"
       continue
     if click(boxes=matches["next"]):
+      strategy_data["screen"] = "next"
       continue
     if click(boxes=matches["next2"]):
+      strategy_data["screen"] = "next2"
       continue
     if click(boxes=matches["cancel"]):
+      strategy_data["screen"] = "cancel"
       continue
     if click(boxes=matches["retry"]):
+      strategy_data["screen"] = "retry"
       continue
 
     if not matches["tazuna"]:
+      strategy_data["screen"] = None
       #info("Should be in career lobby.")
       print(".", end="")
       continue
 
     energy_level, max_energy = check_energy_level()
+    strategy_data["energy_level"] = energy_level
+    strategy_data["max_energy"] = max_energy
 
     skipped_infirmary=False
     if matches["infirmary"] and is_btn_active(matches["infirmary"][0]):
+      strategy_data["infirmary"] = True
       # infirmary always gives 20 energy, it's better to spend energy before going to the infirmary 99% of the time.
       if max(0, (max_energy - energy_level)) >= state.SKIP_INFIRMARY_UNLESS_MISSING_ENERGY:
         click(boxes=matches["infirmary"][0], text="Character debuffed, going to infirmary.")
@@ -406,16 +418,24 @@ def career_lobby():
         skipped_infirmary=True
 
     mood = check_mood()
+    strategy_data["mood"] = mood
     mood_index = constants.MOOD_LIST.index(mood)
     minimum_mood = constants.MOOD_LIST.index(state.MINIMUM_MOOD)
     minimum_mood_junior_year = constants.MOOD_LIST.index(state.MINIMUM_MOOD_JUNIOR_YEAR)
     turn = check_turn()
     year = check_current_year()
+    day = check_career_day()
     criteria = check_criteria()
     year_parts = year.split(" ")
+    strategy_data["turn"] = turn
+    strategy_data["year"] = year
+    strategy_data["day"] = day
+    strategy_data["criteria"] = criteria
+    strategy_data["year_parts"] = year_parts
 
     print("\n=======================================================================================\n")
     info(f"Year: {year}")
+    info(f"Day: {day}")
     info(f"Mood: {mood}")
     info(f"Turn: {turn}")
     info(f"Criteria: {criteria}")
@@ -497,6 +517,8 @@ def career_lobby():
       keywords = ("fan", "Maiden", "Progress")
 
       prioritize_g1, race_name = decide_race_for_goal(year, turn, criteria, keywords)
+      strategy_data["prioritize_g1"] = prioritize_g1
+      strategy_data["race_name"] = race_name
       info(f"prioritize_g1: {prioritize_g1}, race_name: {race_name}")
       if race_name:
         if race_name == "any":
@@ -518,8 +540,13 @@ def career_lobby():
     # Last, do training
     sleep(0.5)
     results_training = check_training()
+    strategy_data["results_training"] = results_training
 
     best_training = do_something(results_training)
+
+    # evaluate training strategy will replace all decision making logic found here.
+    # evaluate_training_strategy(strategy_data)
+
     if best_training:
       go_to_training()
       sleep(0.5)

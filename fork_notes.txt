@@ -1,0 +1,45 @@
+This is a text file containing notes about notable functionalities of the original script. 
+    My goals and explination of changes I make.
+    The most significat change I plan to make is to break the strategies into stages based on the number of career days that have passed.
+        * i.e. the acceptible failure rate should change based on the training reward, or if it's the very last day to train before a goal.
+
+Originnal code flow.
+
+Part 1, step 1 Screen recognision
+    main.py -> def main(): -> career_lobby()
+    execute.py -> def career_lobby():
+    - Consider this as the bots main loop. As long as the bot is running it will continnue to cycle throgh this.
+    * There is a lot of extra functionality in this loop that I want to move.
+    1 Grabs a screenshot and determines what screen the game is on. It will click buttons to attempt to return to the career lobby.
+        - "continnue" skips remaining code in a loops iteration and move to the next iteration.
+    2 When in career lobby it gathers data about the current state of game play.
+        - Gets energy data
+        - Determines if infirmary is available. It also has logic to click Infirmary if it meets criteria.
+            * This is a feature I want to move. The criteria for choosing to use the infirmary should be on the same level as choosing training.
+        - Gets mood. 
+            * notice that it doesn't choose to do recreation at this level. This is how infirmary should work also.
+        - Gets Turns until next race
+        - Gets Year.
+            * Based on the year I will add logic that determines what day of the career we are in. it goes from 1 to 72.
+        - Gets Criteria for next goal.
+        - Handles reaces for URA Finale
+            * This will be moved to it's own stage for the strategy stages.
+        - If calendar is race day, do race
+            * the race day screen should probably be considered a non career loby screen, so it can stay in this sectionn.
+        - "Mood Check" does infirmary if availabe, then tries recreationn if criteria is met.
+            * All of this needs to be moved. and determined alogside trainning strategy.
+        - If Prioritize G1 Race is true, check G1 race every turn
+            * This logic will be moved. I also want to change how this works so that you don't have to make a race list.
+        - Check if we need to race for goal, then do race.
+            * The bot waists a lot of turns on this. This needs to be better optimized. It needs to use the full list of races to determine the most efficiant use of turns to accomplish the goal. And also not do the first available race, sometimes it's better to wait for a later race. 
+        - Check training button. This gets data about the training options. Then does training.
+                results_training = check_training()
+                best_training = do_something(results_training)
+                    do_train(best_training)
+                else:
+                    do_rest(energy_level)
+            * This should only get the training results. We will move do_train and do_rest to the section where we analyze training strategy.
+        - 
+     
+
+    

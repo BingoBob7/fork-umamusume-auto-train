@@ -15,7 +15,8 @@ import core.state as state
 from server.main import app
 from update_config import update_config
 
-hotkey = "f1"
+# hotkey = "f1"
+hotkey = 'ctrl+alt+h'
 
 def focus_umamusume():
   try:

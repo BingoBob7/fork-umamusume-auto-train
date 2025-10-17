@@ -1,5 +1,5 @@
 import core.state as state
-from core.state import check_current_year, stat_state, check_energy_level, check_aptitudes
+from core.state import check_current_year, stat_state, check_energy_level, check_aptitudes, check_career_day
 from utils.log import info, warning, error, debug
 import utils.constants as constants
 
@@ -34,9 +34,27 @@ def most_support_card(results):
     info("All trainings are unsafe, but WIT is safe and has enough support cards.")
     return "wit"
 
-  filtered_results = {
-    k: v for k, v in results.items() if int(v["failure"]) <= state.MAX_FAILURE
-  }
+  filtered_results ={}
+  wit_failure = results.get("wit", {}).get("failure", 100)
+  if int(wit_failure) > state.MAX_FAILURE:
+    debug("WIT training failure too high, skip training.")
+    return None
+  else:
+    max_failure_stat = max(int(data.get("failure", 0)) for stat, data in results.items() if stat != "wit")
+    if max_failure_stat > state.MAX_FAILURE:
+      debug("Some trainings have failure too high, only considering WIT training.")
+      filtered_results = {
+        "wit": results["wit"]
+      }
+    else:
+      filtered_results = results
+  if not filtered_results:
+      debug("No trainings under MAX_FAILURE.")
+      return None
+  # if the only filtered result is wit, and it has less than 2 support card, return None
+  if len(filtered_results) == 1 and "wit" in filtered_results and filtered_results["wit"]["total_supports"] < 2:
+      debug("Only WIT training available with insufficient support.")
+      return None
 
   if not filtered_results:
     info("No safe training found. All failure chances are too high.")
@@ -82,6 +100,7 @@ def training_score(x):
   global PRIORITY_WEIGHTS_LIST
   priority_weight = PRIORITY_WEIGHTS_LIST[state.PRIORITY_WEIGHT]
   base = x[1]["total_supports"]
+  + x[1]["trainer"]
   if x[1]["total_hints"] > 0:
       base += 0.5
   multiplier = 1 + state.PRIORITY_EFFECTS_LIST[get_stat_priority(x[0])] * priority_weight
@@ -93,13 +112,36 @@ def training_score(x):
   return (total, -get_stat_priority(x[0]))
 
 def focus_max_friendships(results):
-  filtered_results = {
-      stat: data for stat, data in results.items()
-      if int(data["failure"]) <= state.MAX_FAILURE
-  }
+  # Make filter based on failure rate. Return all training, or wit, or none.
+  # First, check if wit is greater than MAX_FAILURE. If so, return none. if not, go to second step.
+  # Second, getting the max failure from all stats. if it's grater than MAX_FAILURE, return wit. if not, safe to return all stats.
+  filtered_results ={}
+  wit_failure = results.get("wit", {}).get("failure", 100)
+  if int(wit_failure) > state.MAX_FAILURE:
+    debug("WIT training failure too high, skip training.")
+    return None, 0
+  else:
+    max_failure_stat = max(int(data.get("failure", 0)) for stat, data in results.items() if stat != "wit")
+    if max_failure_stat > state.MAX_FAILURE:
+      debug("Some trainings have failure too high, only considering WIT training.")
+      filtered_results = {
+        "wit": results["wit"]
+      }
+    else:
+      filtered_results = results
+
+  # filtered_results = {
+  #     stat: data for stat, data in results.items()
+  #     if int(data["failure"]) <= state.MAX_FAILURE
+  # }
 
   if not filtered_results:
-      debug("No trainings under MAX_FAILURE, falling back to most_support_card.")
+      debug("No trainings under MAX_FAILURE.")
+      return None, 0
+  
+  # if the only filtered result is wit, and it has less than 2 support card, return None
+  if len(filtered_results) == 1 and "wit" in filtered_results and filtered_results["wit"]["total_supports"] < 2:
+      debug("Only WIT training available with insufficient support.")
       return None, 0
 
   for stat_name in filtered_results:
@@ -107,13 +149,15 @@ def focus_max_friendships(results):
     # order of importance gray > blue > green, because getting greens to max is easier than blues (gray is very low blue)
     possible_friendship = (
                             data["total_friendship_levels"]["green"]
-                            + data["total_friendship_levels"]["blue"] * 1.01
+                            # + data["total_friendship_levels"]["blue"] * 1.01
+                            + data["total_friendship_levels"]["blue"]
                             + data["total_friendship_levels"]["gray"] * 1.02
                           )
 
     # hints are worth a little more than half a training
     if data["total_hints"] > 0:
-      hint_values = { "gray": 0.612, "blue": 0.606, "green": 0.6 }
+      # hint_values = { "gray": 0.612, "blue": 0.606, "green": 0.6 }
+      hint_values = { "gray": 0.02, "blue": 0.01, "green": 0.01 }
       for level, bonus in hint_values.items():
         if data["hints_per_friend_level"].get(level, 0) > 0:
             possible_friendship += bonus
@@ -128,10 +172,33 @@ def focus_max_friendships(results):
 
 # Do rainbow training
 def rainbow_training(results):
+  # filter out failure first
+  filtered_results ={}
+  wit_failure = results.get("wit", {}).get("failure", 100)
+  if int(wit_failure) > state.MAX_FAILURE:
+    debug("WIT training failure too high, skip training.")
+    return None
+  else:
+    max_failure_stat = max(int(data.get("failure", 0)) for stat, data in results.items() if stat != "wit")
+    if max_failure_stat > state.MAX_FAILURE:
+      debug("Some trainings have failure too high, only considering WIT training.")
+      filtered_results = {
+        "wit": results["wit"]
+      }
+    else:
+      filtered_results = results
+  if not filtered_results:
+      debug("No trainings under MAX_FAILURE.")
+      return None
+  # if the only filtered result is wit, and it has less than 2 support card, return None
+  if len(filtered_results) == 1 and "wit" in filtered_results and filtered_results["wit"]["total_supports"] < 2:
+      debug("Only WIT training available with insufficient support.")
+      return None
+
   global PRIORITY_WEIGHTS_LIST
   priority_weight = PRIORITY_WEIGHTS_LIST[state.PRIORITY_WEIGHT]
   # 2 points for rainbow supports, 1 point for normal supports, stat priority tie breaker
-  rainbow_candidates = results
+  rainbow_candidates = filtered_results
   for stat_name in rainbow_candidates:
     multiplier = 1 + state.PRIORITY_EFFECTS_LIST[get_stat_priority(stat_name)] * priority_weight
     data = rainbow_candidates[stat_name]
@@ -144,13 +211,13 @@ def rainbow_training(results):
     rainbow_candidates[stat_name]["rainbow_points"] = rainbow_points
     rainbow_candidates[stat_name]["total_rainbow_friends"] = total_rainbow_friends
 
-  # Get rainbow training
-  rainbow_candidates = {
-    stat: data for stat, data in results.items()
-    if int(data["failure"]) <= state.MAX_FAILURE
-       and data["rainbow_points"] >= 2
-       and not (stat == "wit" and data["total_rainbow_friends"] < 1)
-  }
+  # # Get rainbow training
+  # rainbow_candidates = {
+  #   stat: data for stat, data in results.items()
+  #   if int(data["failure"]) <= state.MAX_FAILURE
+  #      and data["rainbow_points"] >= 2
+  #      and not (stat == "wit" and data["total_rainbow_friends"] < 1)
+  # }
 
   if not rainbow_candidates:
     info("No rainbow training found under failure threshold.")
@@ -166,11 +233,11 @@ def rainbow_training(results):
   )
 
   best_key, best_data = best_rainbow
-  if best_key == "wit":
-    #if we get to wit, we must have at least 1 rainbow friend
-    if data["total_rainbow_friends"] < 1:
-      info(f"Wit training has most rainbow points but it doesn't have any rainbow friends, skipping.")
-      return None
+  # if best_key == "wit":
+  #   #if we get to wit, we must have at least 1 rainbow friend
+  #   if data["total_rainbow_friends"] < 1:
+  #     info(f"Wit training has most rainbow points but it doesn't have any rainbow friends, skipping.")
+  #     return None
 
   info(f"Rainbow training selected: {best_key.upper()} with {best_data['rainbow_points']} rainbow points and {best_data['failure']}% fail chance")
   return best_key
@@ -189,7 +256,11 @@ def all_values_equal(dictionary):
 def do_something(results):
   year = check_current_year()
   current_stats = stat_state()
+  day = check_career_day()
   info(f"Current stats: {current_stats}")
+
+  if day > 24:
+    state.MAX_FAILURE = 20
 
   filtered = filter_by_stat_caps(results, current_stats)
 
@@ -197,12 +268,13 @@ def do_something(results):
     info("All stats capped or no valid training.")
     return None
 
-  if "Junior Year" in year:
+  # if "Junior Year" in year:
+  if day <= 36:
     result, best_score = focus_max_friendships(filtered)
 
-    # If the best option for raising friendship is just one friend, with no hint bonus
-    if best_score <= 1.3:
-      return most_support_card(filtered)
+    # # If the best option for raising friendship is just one friend, with no hint bonus
+    # if best_score <= 1.3:
+    #   return most_support_card(filtered)
 
   else:
     result = rainbow_training(filtered)
@@ -210,6 +282,171 @@ def do_something(results):
       info("Falling back to most_support_card because rainbow not available.")
       return most_support_card(filtered)
   return result
+
+# Defining Training Strategies
+def evaluate_training_strategy(strategy_data):
+  """
+  screen = string
+  energy_level = int
+  max_energy = int
+  infirmary = bool
+  mood = string
+  turn = string
+  year = string
+  day = int
+  criteria = string
+  year_parts = list
+  prioritize_g1 = bool
+  race_name = string
+  results_training = dict
+    key: {
+      trainer: int,
+      total_supports: int,
+      total_hints: int,
+      total_friendship_levels: {
+        gray: int,
+        blue: int,
+        green: int,
+        yellow: int,
+        max: int,
+        },
+      hints_per_friend_level: {
+        gray: int,
+        blue: int,
+        green: int,
+        yellow: int,
+        max: int,
+        },
+      support types: {
+        supports: int,
+        hints: int,
+        friendship_levels: {
+          gray: int,
+          blue: int,
+          green: int,
+          yellow: int,
+          max: int
+        }
+      }
+    }
+  """
+# Break strategies into time periods
+  # Junior Year Pre-Debut: <= day 12
+  # Junior Year Post Debut: <= day 24
+  # Classic Year Pre Summer: <= day 36
+  # Classic Year Summer: * if there are still non maxed supports, ignore them. day after summer is 41
+  # Classic Year Post Summer: <= day 48
+  # Senior Year Pre Summer: <= day 60
+  # Senior Year Post Summer: <= day 68
+  # Last 4 days: <= day 72
+  # Final season: > day 72
+
+# determine stat to train
+  # Count Support Cards
+  # Count Support Points (tie breaker)
+  # Stat priority (tie breaker)
+
+# Count Cards
+  # non-max
+    # Junior Year Pre-Debut: non-max = 1, gray = 2.
+    # Classic Year Summer: non-max = 3
+  # maxed
+    # Junior Year Pre-Debut: maxed = 0
+    # Classic Year Summer: maxed = 1
+  # Trainers
+    # Classic Year Post Summer: trainer = 1
+
+# Count Points
+  # Hints
+    # Junior Year Pre-Debut: hint = 1
+  # Trainers
+    # Junior Year Pre-Debut: trainer = 1
+  # Rainbows
+    # Junior Year Post Debut: rainbow = 1
+    # Classic Year Pre Summer: rainbow = 2, 
+      # 1st priority stat rainbows: 1 = 1, 2 = 3, 3 = 5
+      # Other priority stat rainbows: 1 = 2, 2 = 4, 3 = 6.
+
+# Stat Priority 
+  # Order: Wit > 2nd number of support card types > 3rd number of support card types > 1st number of support card types
+    # Wit, Power, Stamina, Speed.
+
+# Stat priorities. 
+  # You should have 3 priority stats. Speed, Stamina, Power. And determine the order of their priority. Should be based on the number of that support card stat type.
+  # There is already a specifc optimized number for guts you should have, and it's based on track lenght.
+    # Sprint: 210
+    # Mile: 260
+    # Medium: 320
+    # Long: 380 - 440
+  # The goal for wit should always be 400 at the end of the career.
+
+# Junior Year Pre-Debut
+  # Max failure = 12%
+  # Wit is least priority. Only train it once or twice, and only if it has 3+ support cards.
+  # Guts is second least priority. Only train guts once or twice, and only if it has 3+ support cards.
+  # You want to focus speed, stamina, power.
+  # The two main purposes of this is to level up training facilities. You should get one facility to level up before the race. Second, is so you can pass the first race.
+    
+# Never do Extra Training
+
+# Junior Year Post Debut
+  # The goal is to get all support cards maxed out before summer.
+  # Wit is now you top priority. This may be the only time you can focus on it.
+  # When you have enough energy to train, train the stat with the most support card points. 
+  # Tie goes to the most support cards. So a 1 gray vs 2 green would go to the 2 green.
+    # If still tied, go to priority stat.
+    # Count gray as 2x support cards.
+    # Count gray trainers as .5x support cards. Don't count trainers if they go above gray.
+    # Count 1 rainbow as .5x support cards. 2 rainbows are 1.5x support cards. 3 = 3.5x support cards.
+    # Count hints as 2.5x support cards. We want to focus hints more during this time frame. we will ignore them later.
+    # Top two priority stats get +0.5x support cards. Wit gets +1x support cards.
+  # When at 50 energy, Only train if you can get 3 support cards points.
+    # Use wit if it has 2 support cards.
+  # When non wit stats have failure chance over the max, Rest.
+    # Only use wit if it has 2.5 support card points. and it's failure chance is under the max.
+
+# Classic Year Pre Summer
+
+# Classic Year Post Summer
+  # Do some G1 races
+  # Focus wit again. If it has 2+ support cards.
+
+  filtered = filter_by_stat_caps(strategy_data["results_training"], stat_state())
+
+  if not filtered:
+    info("All stats capped or no valid training.")
+    return None
+
+  if strategy_data["day"] <= 12:
+    if not filtered:
+      info("All Stats are at cap.")
+      return None
+
+    # Determine the stats with the most non-max support cards, return multiple if tied.
+    best_training = max(
+      filtered.items(),
+      key=lambda x: (
+        x[1]["total_supports"]
+        + x[1]["friendship_levels"].get("gray", 0)
+      )
+    )
+
+    # if there are more than one best_training, add points from hints and trainers to break the tie.
+    if isinstance(best_training, list):
+      best_training = max(
+        best_training,
+        key=lambda x: (
+          x[1]["total_hints"]
+          + x[1]["trainer"]
+        )
+      )
+
+
+
+    best_key, best_data = best_training
+
+    info(f"Selected training: {best_key.upper()} with {best_data['total_supports']} support cards, {best_data['total_hints']} hints, {best_data['friendship_levels'].get('yellow', 0)} rainbow friends, {best_data['friendship_levels'].get('max', 0)} max friends, and {best_data['failure']}% fail chance")
+    return best_key
 
 # helper functions
 def decide_race_for_goal(year, turn, criteria, keywords):
